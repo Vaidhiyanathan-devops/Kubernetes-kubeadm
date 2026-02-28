@@ -27,7 +27,16 @@ net.bridge.bridge-nf-call-iptables = 1
 net.ipv4.ip_forward = 1
 EOF
 
-sudo modprobe br_netfilter 
+sudo modprobe br_netfilter
+
+######### Important notes modprobe doesnt persistent across reboot ###################
+
+######### To presistent across reboot we need to add in the /etc/load-modules.d/k8.conf ##########
+
+cat > /etc/modules-load.d/k8s.conf << 'EOF'
+overlay
+br_netfilter
+EOF
 
 sysctl -p /etc/sysctl.d/kubernetes.conf 
 
@@ -46,7 +55,10 @@ mkdir /etc/containerd
 
 containerd config default | sed 's/SystemdCgroup = false/SystemdCgroup = true/' | sudo tee /etc/containerd/config.toml
 
-swapoff /dev/nvme0n1p3 
+#### subjective need to change according to your device ##########
+
+swapoff /dev/nvme0n1p3
+
 
 sudo apt update
 sudo apt install -y containerd.io
@@ -56,15 +68,20 @@ systemctl restart containerd.service
 
 kubeadm init --apiserver-advertise-address 192.168.1.6 --pod-network-cidr "10.244.0.0/16" --upload-certs
 
-mkdir -p $HOME/.kube
-sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $(id -u):$(id -g) $HOME/.kube/config
-export KUBECONFIG=/etc/kubernetes/admin.conf
-alias k=kubectl
-export KUBECONFIG=/etc/kubernetes/admin.conf
+# mkdir -p $HOME/.kube
+# sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+# sudo chown $(id -u):$(id -g) $HOME/.kube/config
+# export KUBECONFIG=/etc/kubernetes/admin.conf
+# alias k=kubectl
+# export KUBECONFIG=/etc/kubernetes/admin.conf
 
 
 #Network CNI
 
 kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
 
+#add this argument in flannel or CNI daemonset for persistent across reboot
+#args:
+#- --ip-masq
+#- --kube-subnet-mgr
+#- --iface=enp0s3      # add this line
