@@ -1,0 +1,67 @@
+gcloud compute instances create k8s-worker \
+  --project=sublime-amp-160011 \
+  --zone=asia-south1-c \
+  --machine-type=e2-standard-2 \
+  --image-family=debian-12 \
+  --image-project=debian-cloud \
+  --boot-disk-size=50GB \
+  --boot-disk-type=pd-standard \
+  --tags=k8s-worker \
+  --metadata=startup-script='#!/bin/bash
+
+# Install basic dependencies
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+sudo mkdir -p -m 0755 /etc/apt/keyrings
+
+# Kubernetes Key
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+# Docker Key
+curl -fsSL https://download.docker.com/linux/debian/gpg | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Kubernetes repo
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
+  https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" | \
+  sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+# Docker repo
+VERSION_CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+[ "$VERSION_CODENAME" = "trixie" ] && REPO_CODENAME="bookworm" || REPO_CODENAME=$VERSION_CODENAME
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/debian $REPO_CODENAME stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list
+
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl containerd.io
+sudo apt-mark hold kubelet kubeadm kubectl
+sudo systemctl enable --now kubelet
+
+# Kernel parameters
+cat <<EOF | sudo tee /etc/sysctl.d/kubernetes.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+
+cat > /etc/modules-load.d/k8s.conf << EOF
+overlay
+br_netfilter
+EOF
+
+sudo modprobe br_netfilter overlay
+sysctl -p /etc/sysctl.d/kubernetes.conf
+
+# Containerd config
+sudo mkdir -p /etc/containerd
+containerd config default | \
+  sed "s/SystemdCgroup = false/SystemdCgroup = true/" | \
+  sudo tee /etc/containerd/config.toml
+sudo systemctl restart containerd
+
+# Disable swap
+sudo swapoff -a
+sed -i "/swap/d" /etc/fstab'
